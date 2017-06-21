@@ -17,7 +17,10 @@ The Azure Automation Script does the following...
 *The script is not actually deleting anything ever. Just tagging with a deleteAfter date.*
 
 ## Deployment
-Deploy it as an Azure Automation Script through the Azure Portal and **add the required parameters in all four sections**:
+* Make sure you have the HTML template and header graphics deployed to a public URL (e.g. Blob Storage with a Shared Access Signature)
+* Deploy the script as an Azure Automation Script through the Azure Portal
+* Set-up a scheduled job (https://docs.microsoft.com/en-us/azure/automation/automation-schedules)
+* **Add the required parameters in all four sections**:
 
 ### 1. Azure Automation Runbook Inputs
 | Parameter | Default   | Description                                               |
