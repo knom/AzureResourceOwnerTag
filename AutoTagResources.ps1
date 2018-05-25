@@ -645,14 +645,15 @@ foreach ($rg in $notAliasedRGs) {
         -Status "Resource Group $rg"
 
     $callers = Get-AzureRmLog -ResourceGroup $rg -DetailedOutput `
-        -StartTime (Get-Date).AddDays($days) `
-        -EndTime (Get-Date)`
-        | Where-Object { $_.Caller -and ($_.Caller -ne "System") `
-            -and ( $_.OperationName -ne "Microsoft.Storage/storageAccounts/listKeys/action") `
-            -and ($_.EventName -eq "BeginRequest") `
-            -and ($_.Properties.Content["requestbody"] -ne "{""tags"":{}}") } `
-        | Sort-Object -Property Caller -Unique  `
-        | Select-Object Caller
+            -StartTime (Get-Date).AddDays($days) `
+            -EndTime (Get-Date)`
+            | Where-Object Caller -like "*@*" `
+            | Where-Object { $_.Caller -and ($_.Caller -ne "System") } `
+            | Where-Object { $_.OperationName.Value -ne "Microsoft.Storage/storageAccounts/listKeys/action" }`
+            | Where-Object { $_.Properties.Content -and ($_.Properties.Content["requestbody"] -ne "{""tags"":{}}" ) } `
+            | Sort-Object -Property Caller -Unique `
+            | Select-Object Caller
+
     if ($callers) {
         $alias = $callers[0].Caller -replace $userdomain, ""
 				
