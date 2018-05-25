@@ -562,11 +562,6 @@ if ($DayCount -gt 0) {
 }
 
 $connectionName = "AzureRunAsConnection"
-
-# Read parameters from Azure Automation VARIABLES
-# https://docs.microsoft.com/en-us/azure/automation/automation-variables
-# It's required you set them up, before you run the script
-
 # the subscription ID of the Azure subscription 
 $SubscriptionId = Get-AutomationVariable -Name "SubscriptionId"
 
@@ -621,21 +616,21 @@ if ($WhatIf) {
 
 $allRGs = (Get-AzureRmResourceGroup).ResourceGroupName
 
-Write-Warning "Found $($allRGs.Length) total RGs"
+Write-Verbose "Found $($allRGs.Length) total RGs"
 
-$aliasedRGs = (Find-AzureRmResourceGroup -Tag @{ alias = $null }).Name
+$aliasedRGs = (Get-AzureRmResourceGroup -Tag @{ alias = $null }).ResourceGroupName
 
-Write-Warning "Found $($aliasedRGs.Length) aliased RGs"
+Write-Verbose "Found $($aliasedRGs.Length) aliased RGs"
 
 $notAliasedRGs = $allRGs | ? {-not ($aliasedRGs -contains $_)}
 
-Write-Warning "Found $($notAliasedRGs.Length) un-tagged RGs"
+Write-Verbose "Found $($notAliasedRGs.Length) un-tagged RGs"
 
 $result = New-Object System.Collections.ArrayList
 
 foreach ($rg in $notAliasedRGs) {
     if ($rg -match $RGNamesIgnoreRegex) {
-        Write-Warning "Ignoring Resource Group $rg"
+        Write-Verbose "Ignoring Resource Group $rg"
         continue
     }
 
@@ -645,28 +640,31 @@ foreach ($rg in $notAliasedRGs) {
         -Status "Resource Group $rg"
 
     $callers = Get-AzureRmLog -ResourceGroup $rg -DetailedOutput `
-            -StartTime (Get-Date).AddDays($days) `
-            -EndTime (Get-Date)`
-            | Where-Object Caller -like "*@*" `
-            | Where-Object { $_.Caller -and ($_.Caller -ne "System") } `
-            | Where-Object { $_.OperationName.Value -ne "Microsoft.Storage/storageAccounts/listKeys/action" }`
-            | Where-Object { $_.Properties.Content -and ($_.Properties.Content["requestbody"] -ne "{""tags"":{}}" ) } `
-            | Sort-Object -Property Caller -Unique `
-            | Select-Object Caller
-
+        -StartTime (Get-Date).AddDays($days) `
+        -EndTime (Get-Date)`
+        | Where-Object Caller -like "*@*" `
+        | Where-Object { $_.Caller -and ($_.Caller -ne "System") } `
+        | Where-Object { $_.OperationName.Value -ne "Microsoft.Storage/storageAccounts/listKeys/action" }`
+        | Where-Object { $_.Properties.Content -and ($_.Properties.Content["requestbody"] -ne "{""tags"":{}}" ) } `
+        | Sort-Object -Property Caller -Unique `
+        | Select-Object Caller
+    
     if ($callers) {
         $alias = $callers[0].Caller -replace $userdomain, ""
-				
-        Write-Warning "Tagging Resource Group $rg for alias $alias"
-        
-        if (-not $WhatIf) {
-            Set-AzureRmResourceGroup -Name $rg -Tag @{ alias = $alias; deleteAfter = $deleteDate} | Out-Null
+
+        if ($alias -match ("^(\{){0,1}[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}(\}){0,1}$")) {
+            Write-Verbose "Ignoring guid alias $alias"
         }
-        $result.Add((New-Object PSObject -Property @{Name = $rg; Alias = $alias})) | Out-Null
-        
+        else {			
+            Write-Verbose "Tagging Resource Group $rg for alias $alias"
+            if (-not $WhatIf) {
+                Set-AzureRmResourceGroup -Name $rg -Tag @{ alias = $alias; deleteAfter = $deleteDate} | Out-Null
+            }
+            $result.Add((New-Object PSObject -Property @{Name = $rg; Alias = $alias})) | Out-Null           
+        }
     }
     else {
-        Write-Warning "No activity found for Resource Group $rg"
+        Write-Verbose "No activity found for Resource Group $rg"
     }
 }
 
@@ -684,9 +682,15 @@ if ($result.Count -gt 0) {
     $subject = "$($result.Count) new resource groups automatically tagged";
 
     $tocomb = "$To;$toAffected"
+
+    # in WHATIF mode only send to certain users
+    if ($WhatIf) {
+        $tocomb = "$To"
+    }
+
     $toArray = $tocomb.Split(";")
 
-    Write-Warning "Sending Mail to $tocomb"
+    Write-Verbose "Sending Mail to $tocomb"
 
     Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
 
@@ -706,7 +710,7 @@ if ($result.Count -gt 0) {
         -Priority "Low"
 }
 else {
-    Write-Warning "No Email sent - 0 Resource Groups tagged"
+    Write-Verbose "No Email sent - 0 Resource Groups tagged"
 }
 
 $result
