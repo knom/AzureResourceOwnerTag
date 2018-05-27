@@ -87,15 +87,21 @@ foreach ($item in $expired) {
 }
 
 if ($expired.Count -gt 0) {
+    # add an entry to the HTML table
     $rgString = ($expired | ForEach-Object { "<tr><td>$($_.ResourceGroupName)</td><td>$($_.Alias)</td><td>$($_.DeleteAfter)</td><td>$($_.ResourceCount)</td></tr>" })
 
+    # add to the list of affected mails
     $toAffected = ($expired | ForEach-Object { "<$($_.Alias)$($userdomain)>" }) -join ";"
 
+    # download HTML template from the web
     $template = Invoke-WebRequest -Uri $TemplateUrl -UseBasicParsing
+    # download the header graphics
+    Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
 
+    # replace parameters in the template
     $body = $template -replace "_TABLE_", $rgString -replace "_DATE_", $deleteDate
 
-    $subject = "$($expired.Count) Resource Groups Expired";
+    $subject = "$($expired.Count) resource groups expired";
 
     if ($WhatIf) {
         Write-Warning "WHATIF set, only sending to $To"
@@ -109,8 +115,7 @@ if ($expired.Count -gt 0) {
 
     Write-Warning "Sending Mail to $tocomb"
 
-    Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
-
+    # Send the e-mail using the external script
     .\Send-MailMessageEx.ps1 `
         -Body $body `
         -Subject $subject `
@@ -128,22 +133,30 @@ else {
     Write-Warning "No Email sent - 0 Resource Groups expired"
 }
 
+# filter for RGs that have an expiry dates further out than X days
 $tooFarOutExpiry = $deleteTaggedCasted | Where-Object {$_.DeleteAfter -gt (Get-Date).AddDays($FutureMaxExpiryDays)} `
     | Sort-Object -Property DeleteAfter
 
 foreach ($item in $tooFarOutExpiry) {
     Write-Warning "Fetching count for group $($item.ResourceGroupName)"
+    # fetch the list and count of resources
     $item.Resources = Get-AzureRmResource -ResourceGroupName $item.ResourceGroupName
     $item.ResourceCount = $item.Resources.Count
 }
 
 if ($tooFarOutExpiry.Count -gt 0) {
+    # add an entry to the HTML table
     $rgString = ($tooFarOutExpiry | ForEach-Object { "<tr><td>$($_.ResourceGroupName)</td><td>$($_.Alias)</td><td>$($_.DeleteAfter)</td><td>$($_.ResourceCount)</td></tr>" })
     
+    # add to the list of affected mails
     $toAffected = ($tooFarOutExpiry | ForEach-Object { "<$($_.Alias)$($userdomain)>" }) -join ";"
     
-    $template = Invoke-WebRequest -Uri $TemplateUrl_TooFar -UseBasicParsing
+    # download HTML template from the web
+    $template = Invoke-WebRequest -Uri $TemplateUrl_TooFar -UseBasicParsing      
+    # download the header graphics
+    Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
     
+    # replace parameters in the template
     $body = $template -replace "_TABLE_", $rgString -replace "_DATE_", $deleteDate
     
     $subject = "$($tooFarOutExpiry.Count) Resource Groups have Expiry Date > 6 Months";
@@ -154,10 +167,7 @@ if ($tooFarOutExpiry.Count -gt 0) {
     
     Write-Warning "Sending Mail about too far expiry to $tocomb"
     
-    $mailCreds = Get-AutomationPSCredential -Name 'Office365'
-    
-    Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
-    
+    # Send the e-mail using the external script
     .\Send-MailMessageEx.ps1 `
         -Body $body `
         -Subject $subject `

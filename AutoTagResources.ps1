@@ -126,7 +126,7 @@ Write-Progress -Activity "Searching Resource Group Logs..." -Completed -Status "
 
 # Start generating E-MAIL content
 if ($result.Count -gt 0) {
-    # add an entry for the HTML table
+    # add an entry to the HTML table
     $rgString = ($result | ForEach-Object { "<tr><td>$($_.Name)</td><td>$($_.Alias)</td></tr>" })
 
     # add to the list of affected mails
@@ -134,7 +134,7 @@ if ($result.Count -gt 0) {
 
     # download HTML template from the web
     $template = Invoke-WebRequest -Uri $TemplateUrl -UseBasicParsing
-    # Download the header graphics
+    # download the header graphics
     Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
 
     # replace parameters in the template
@@ -147,6 +147,7 @@ if ($result.Count -gt 0) {
 
     # in WHATIF mode only send to certain users
     if ($WhatIf) {
+        Write-Warning "WHATIF set, only sending to $To"
         $tocomb = "$To"
     }
 
