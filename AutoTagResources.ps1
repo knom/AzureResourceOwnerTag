@@ -74,7 +74,7 @@ $aliasedRGs = (Get-AzureRmResourceGroup -Tag @{ alias = $null }).ResourceGroupNa
 
 Write-Verbose "Found $($aliasedRGs.Length) aliased RGs"
 
-$notAliasedRGs = $allRGs | ? {-not ($aliasedRGs -contains $_)}
+$notAliasedRGs = $allRGs | Where-Object {-not ($aliasedRGs -contains $_)}
 
 Write-Verbose "Found $($notAliasedRGs.Length) un-tagged RGs"
 
@@ -91,29 +91,31 @@ foreach ($rg in $notAliasedRGs) {
         -CurrentOperation "$p% complete" `
         -Status "Resource Group $rg"
 
-    $callers = Get-AzureRmLog -ResourceGroup $rg -DetailedOutput `
+    # get all operations in the Azure log over the last max. 14 days and filter out ones that don't apply
+    $callers = Get-AzureRmLog -ResourceGroup $rg `
         -StartTime (Get-Date).AddDays($days) `
-        -EndTime (Get-Date)`
-        | Where-Object Caller -like "*@*" `
-        | Where-Object { $_.Caller -and ($_.Caller -ne "System") } `
-        | Where-Object { $_.OperationName.Value -ne "Microsoft.Storage/storageAccounts/listKeys/action" }`
-        | Where-Object { $_.Properties.Content -and ($_.Properties.Content["requestbody"] -ne "{""tags"":{}}" ) } `
+        -EndTime (Get-Date) `
+        -Status "Succeeded" `
+        <# no "system, .. ones" #>  `
+        | Where-Object Caller -like "*@*"`
+        <# ignore certain oeprations that seem to happen randomly! #>  `
+        | Where-Object { $_.OperationName.Value -ne "Microsoft.Storage/storageAccounts/listKeys/action" } `
+        <# ignore ones that try to set ALIAS tag (that's this script!) #>  `
+        | Where-Object { $_.Properties.Content -and (($_.Properties.Content.requestbody -notlike "*tags*alias*" ) -and ($_.Properties.Content.responseBody -notlike "*tags*alias*" )) } `
         | Sort-Object -Property Caller -Unique `
         | Select-Object Caller
     
     if ($callers) {
+        # Pick the first caller historically
         $alias = $callers[0].Caller -replace $userdomain, ""
 
-        if ($alias -match ("^(\{){0,1}[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}(\}){0,1}$")) {
-            Write-Verbose "Ignoring guid alias $alias"
+        Write-Verbose "Tagging Resource Group $rg for alias $alias"
+        if (-not $WhatIf) {
+            # Apply the alias, deleteAfter TAGs
+            Set-AzureRmResourceGroup -Name $rg -Tag @{ alias = $alias; deleteAfter = $deleteDate} | Out-Null
         }
-        else {			
-            Write-Verbose "Tagging Resource Group $rg for alias $alias"
-            if (-not $WhatIf) {
-                Set-AzureRmResourceGroup -Name $rg -Tag @{ alias = $alias; deleteAfter = $deleteDate} | Out-Null
-            }
-            $result.Add((New-Object PSObject -Property @{Name = $rg; Alias = $alias})) | Out-Null           
-        }
+        # Add to results
+        $result.Add((New-Object PSObject -Property @{Name = $rg; Alias = $alias})) | Out-Null
     }
     else {
         Write-Verbose "No activity found for Resource Group $rg"
@@ -122,17 +124,25 @@ foreach ($rg in $notAliasedRGs) {
 
 Write-Progress -Activity "Searching Resource Group Logs..." -Completed -Status "Done"
 
+# Start generating E-MAIL content
 if ($result.Count -gt 0) {
+    # add an entry for the HTML table
     $rgString = ($result | ForEach-Object { "<tr><td>$($_.Name)</td><td>$($_.Alias)</td></tr>" })
 
+    # add to the list of affected mails
     $toAffected = ($result | ForEach-Object { "<$($_.Alias)$($userdomain)>" }) -join ";"
 
+    # download HTML template from the web
     $template = Invoke-WebRequest -Uri $TemplateUrl -UseBasicParsing
+    # Download the header graphics
+    Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
 
+    # replace parameters in the template
     $body = $template -replace "_TABLE_", $rgString -replace "_DATE_", $deleteDate
 
     $subject = "$($result.Count) new resource groups automatically tagged";
 
+    # send to TO as well as the affected users
     $tocomb = "$To;$toAffected"
 
     # in WHATIF mode only send to certain users
@@ -143,11 +153,8 @@ if ($result.Count -gt 0) {
     $toArray = $tocomb.Split(";")
 
     Write-Verbose "Sending Mail to $tocomb"
-
-    Invoke-WebRequest -UseBasicParsing $TemplateHeaderGraphicUrl -OutFile C:\template.png
-
-    # This is specifically for having a tagging.png header graphic embedded to the mail
-    # of course you can remove the line -InlineAttachments
+    
+    # Send the e-mail using the external script
     .\Send-MailMessageEx.ps1 `
         -Body $body `
         -Subject $subject `
