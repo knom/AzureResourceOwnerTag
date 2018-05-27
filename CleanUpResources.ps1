@@ -60,15 +60,15 @@ catch {
 
 $allRGs = (Get-AzureRmResourceGroup)  | Select-Object ResourceGroupName, Tags
 
-Write-Warning "Found $($allRGs.Length) total RGs"
+Write-Verbose "Found $($allRGs.Length) total RGs"
 
 $deleteTagged = ($allRGs | ? { $_.Tags.deleteAfter })
 
-Write-Warning "Found $($deleteTagged.Length) tagged RGs"
+Write-Verbose "Found $($deleteTagged.Length) tagged RGs"
 
 $notDeleteTagged = ($allRGs | ? { -not $_.Tags.deleteAfter })
 
-Write-Warning "Found $($notDeleteTagged.Length) un-tagged RGs"
+Write-Verbose "Found $($notDeleteTagged.Length) un-tagged RGs"
 
 $deleteTaggedCasted = $deleteTagged | Select-Object @{name = "DeleteAfter"; expression = {[datetime]$_.Tags.deleteAfter}}, `
     @{name = "Alias"; expression = {$_.Tags.alias}}, `
@@ -81,7 +81,7 @@ $expired = $deleteTaggedCasted | Where-Object {$_.DeleteAfter -lt (Get-Date).Add
     | Where-Object -Property ResourceGroupName -NotMatch $RGNamesIgnoreRegex
 
 foreach ($item in $expired) {
-    Write-Warning "Fetching count for group $($item.ResourceGroupName)"
+    Write-Verbose "Fetching count for group $($item.ResourceGroupName)"
     $item.Resources = Get-AzureRmResource -ResourceGroupName $item.ResourceGroupName
     $item.ResourceCount = $item.Resources.Count
 }
@@ -113,7 +113,7 @@ if ($expired.Count -gt 0) {
 
     $toArray = $tocomb.Split(";")
 
-    Write-Warning "Sending Mail to $tocomb"
+    Write-Verbose "Sending Mail to $tocomb"
 
     # Send the e-mail using the external script
     .\Send-MailMessageEx.ps1 `
@@ -138,7 +138,7 @@ $tooFarOutExpiry = $deleteTaggedCasted | Where-Object {$_.DeleteAfter -gt (Get-D
     | Sort-Object -Property DeleteAfter
 
 foreach ($item in $tooFarOutExpiry) {
-    Write-Warning "Fetching count for group $($item.ResourceGroupName)"
+    Write-Verbose "Fetching count for group $($item.ResourceGroupName)"
     # fetch the list and count of resources
     $item.Resources = Get-AzureRmResource -ResourceGroupName $item.ResourceGroupName
     $item.ResourceCount = $item.Resources.Count
@@ -165,7 +165,7 @@ if ($tooFarOutExpiry.Count -gt 0) {
     
     $toArray = $tocomb.Split(";")
     
-    Write-Warning "Sending Mail about too far expiry to $tocomb"
+    Write-Verbose "Sending Mail about too far expiry to $tocomb"
     
     # Send the e-mail using the external script
     .\Send-MailMessageEx.ps1 `
